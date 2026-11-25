@@ -1,25 +1,17 @@
 {
-  "name": "The Wheel",
-  "short_name": "The Wheel",
-  "description": "The Wheel",
-  "start_url": "/the-wheel/",
-  "scope": "/The Wheel/",
+  "id": "./keisha_skin_match.html",
+  "name": "Skin Match",
+  "short_name": "Skin Match",
+  "description": "Offline skin color match. Pictures never leave the device.",
+  "start_url": "./keisha_skin_match.html",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#05050e",
-  "theme_color": "#05050e",
-  "orientation": "portrait-primary",
+  "orientation": "any",
+  "background_color": "#f6f4f1",
+  "theme_color": "#f6f4f1",
   "icons": [
-    {
-      "src": "/the-wheel/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/the-wheel/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
+    { "src": "icons/skin-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/skin-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/skin-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }
