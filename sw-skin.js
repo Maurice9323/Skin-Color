@@ -1,15 +1,16 @@
 // Service worker for skin only.
 // Bump the number in VERSION to make phones drop the old cache right away.
 const PREFIX = 'skin-';
-const VERSION = PREFIX + 'v1';
+const VERSION = PREFIX + 'v2';
 
 const ASSETS = [
-  './keisha_skin_match.html',
+  './',
+  './index.html',
   './manifest-skin.json',
-  './icons/skin-180.png',
-  './icons/skin-192.png',
-  './icons/skin-512.png',
-  './icons/skin-maskable-512.png'
+  './skin-180.png',
+  './skin-192.png',
+  './skin-512.png',
+  './skin-maskable-512.png'
 ];
 
 self.addEventListener('install', (event) => {
