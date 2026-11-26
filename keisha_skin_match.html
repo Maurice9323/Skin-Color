@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keisha Skin Match</title>
+<style>
+  :root { --bg:#f6f4f1; --card:#fff; --ink:#222; --mute:#666; --line:#ddd; --accent:#7a4a32; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:18px 22px 6px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  header p { margin:0; color:var(--mute); }
+  main { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; padding:16px 22px 28px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .card h2 { font-size:15px; margin:0 0 8px; }
+  .step { display:inline-block; width:22px; height:22px; line-height:22px; text-align:center; border-radius:50%; background:var(--accent); color:#fff; font-size:12px; margin-right:6px; }
+  .hint { color:var(--mute); font-size:13px; margin:6px 0; }
+  .view { position:relative; background:#eee; border-radius:6px; min-height:160px; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  .view canvas { max-width:100%; max-height:420px; display:block; }
+  .view .empty { color:#999; font-size:13px; padding:30px; text-align:center; }
+  #tview canvas { cursor:crosshair; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  button, .filebtn { font:inherit; padding:7px 12px; border-radius:7px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; }
+  button.ghost { background:#fff; color:var(--accent); }
+  button:disabled { opacity:.45; cursor:default; }
+  input[type=file] { display:none; }
+  input[type=range] { flex:1; min-width:140px; }
+  .sw { display:inline-flex; align-items:center; gap:6px; font-size:13px; }
+  .sw i { width:22px; height:22px; border-radius:4px; border:1px solid #0002; display:inline-block; }
+  .readout { margin-top:8px; display:flex; gap:14px; flex-wrap:wrap; }
+  .warn { color:#9a3b1c; font-size:13px; margin-top:6px; }
+  footer { padding:0 22px 24px; color:var(--mute); font-size:12px; }
+</style>
+<link rel="manifest" href="manifest-skin.json">
+<link rel="apple-touch-icon" href="icons/skin-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw-skin.js', { scope: './keisha_skin_match.html' });</script>
+</head>
+<body>
+<header>
+  <h1>Keisha Skin Match</h1>
+  <p>Copies the skin color from your skin master onto another picture. Everything runs in this browser window. Nothing is uploaded, and it works offline.</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2><span class="step">1</span>Skin master</h2>
+    <p class="hint">The square crop of hero v2's bare shoulder or upper chest.</p>
+    <div class="view" id="sview"><div class="empty">No skin master yet</div></div>
+    <div class="row">
+      <label class="filebtn">Choose skin master<input type="file" id="sfile" accept="image/*"></label>
+    </div>
+    <div class="readout" id="sread"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">2</span>Picture to fix</h2>
+    <p class="hint">Drag a box over an area of her skin (no background, no palms or soles). No box means the whole picture is used.</p>
+    <div class="view" id="tview"><div class="empty">No picture yet</div></div>
+    <div class="row">
+      <label class="filebtn">Choose picture<input type="file" id="tfile" accept="image/*"></label>
+      <button class="ghost" id="clearbox" disabled>Clear box</button>
+    </div>
+    <div class="readout" id="tread"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">3</span>Result</h2>
+    <p class="hint">Strength 100% is a full match. Lower it if the result looks overdone.</p>
+    <div class="view" id="rview"><div class="empty">Load both pictures</div></div>
+    <div class="row">
+      <span>Strength</span>
+      <input type="range" id="strength" min="0" max="100" value="100" disabled>
+      <span id="sval">100%</span>
+    </div>
+    <div class="readout" id="rread"></div>
+    <div class="row">
+      <button id="save" disabled>Save result</button>
+    </div>
+    <p class="warn">Check palms and soles after a match. They should stay lighter (about #a07e56).</p>
+  </section>
+</main>
+
+<footer>
+  Target face color #603c30 (range #684838 to #4d392f). Body: the same, or up to one step lighter (up to about #935e50), never darker than her face. The averages above are a quick guide; confirm with Digital Color Meter (Display in sRGB).
+</footer>
+
+<script>
+"use strict";
+// ---------- color math (sRGB <-> CIELAB, D65) ----------
+function srgbToLinear(c){ c/=255; return c<=0.04045? c/12.92 : Math.pow((c+0.055)/1.055,2.4); }
+function linearToSrgb(c){ c = c<=0.0031308? 12.92*c : 1.055*Math.pow(c,1/2.4)-0.055; c=Math.round(c*255); return c<0?0:(c>255?255:c); }
+var Xn=0.95047, Yn=1.0, Zn=1.08883;
+function fLab(t){ return t>0.008856? Math.cbrt(t) : (7.787*t + 16/116); }
+function fInv(t){ var t3=t*t*t; return t3>0.008856? t3 : (t-16/116)/7.787; }
+function rgbToLab(r,g,b){
+  var R=srgbToLinear(r), G=srgbToLinear(g), B=srgbToLinear(b);
+  var X=(0.4124564*R+0.3575761*G+0.1804375*B)/Xn;
+  var Y=(0.2126729*R+0.7151522*G+0.0721750*B)/Yn;
+  var Z=(0.0193339*R+0.1191920*G+0.9503041*B)/Zn;
+  var fx=fLab(X), fy=fLab(Y), fz=fLab(Z);
+  return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
+}
+function labToRgb(L,a,b){
+  var fy=(L+16)/116, fx=fy+a/500, fz=fy-b/200;
+  var X=fInv(fx)*Xn, Y=fInv(fy)*Yn, Z=fInv(fz)*Zn;
+  var R= 3.2404542*X-1.5371385*Y-0.4985314*Z;
+  var G=-0.9692660*X+1.8760108*Y+0.0415560*Z;
+  var B= 0.0556434*X-0.2040259*Y+1.0572252*Z;
+  return [linearToSrgb(Math.max(0,R)), linearToSrgb(Math.max(0,G)), linearToSrgb(Math.max(0,B))];
+}
+// Convert RGBA pixel data to a Float32Array of L,a,b triplets.
+function toLab(data){
+  var n=data.length/4, out=new Float32Array(n*3);
+  for(var i=0,j=0;i<data.length;i+=4,j+=3){ var l=rgbToLab(data[i],data[i+1],data[i+2]); out[j]=l[0]; out[j+1]=l[1]; out[j+2]=l[2]; }
+  return out;
+}
+// Mean and standard deviation of L,a,b over the pixels inside box {x,y,w,h} of an image width W.
+// Skips pixels that are almost black or almost white (shadows, highlights, background glare).
+function labStats(lab, W, H, box){
+  var bx=box?box.x:0, by=box?box.y:0, bw=box?box.w:W, bh=box?box.h:H;
+  var s=[0,0,0], q=[0,0,0], n=0;
+  for(var y=by;y<by+bh;y++){ for(var x=bx;x<bx+bw;x++){
+    var k=(y*W+x)*3, L=lab[k];
+    if(L<4||L>97) continue;
+    for(var c=0;c<3;c++){ var v=lab[k+c]; s[c]+=v; q[c]+=v*v; }
+    n++;
+  }}
+  if(n===0) return null;
+  var mean=[s[0]/n,s[1]/n,s[2]/n];
+  var sd=[0,1,2].map(function(c){ var v=q[c]/n-mean[c]*mean[c]; return Math.sqrt(Math.max(v,1e-6)); });
+  return {mean:mean, sd:sd, n:n};
+}
+// Reinhard-style transfer: shift and scale the target so its stats match the source, blended by strength (0..1).
+// The scale is limited so a tiny or flat sample box can't blow the picture out.
+function transfer(tLab, tStats, sStats, strength, rgbaOut){
+  var k=[0,1,2].map(function(c){ var r=sStats.sd[c]/tStats.sd[c]; return Math.min(3,Math.max(1/3,r)); });
+  var n=tLab.length/3;
+  for(var p=0;p<n;p++){
+    var j=p*3, o=p*4, m=[0,0,0];
+    for(var c=0;c<3;c++){
+      var v=tLab[j+c], t=(v-tStats.mean[c])*k[c]+sStats.mean[c];
+      m[c]=v+(t-v)*strength;
+    }
+    var rgb=labToRgb(m[0],m[1],m[2]);
+    rgbaOut[o]=rgb[0]; rgbaOut[o+1]=rgb[1]; rgbaOut[o+2]=rgb[2];
+  }
+}
+function avgHex(data, W, box){
+  var bx=box?box.x:0, by=box?box.y:0, bw=box?box.w:W, bh=box?box.h:(data.length/4/W);
+  var r=0,g=0,b=0,n=0;
+  for(var y=by;y<by+bh;y++){ for(var x=bx;x<bx+bw;x++){ var i=(y*W+x)*4; r+=data[i]; g+=data[i+1]; b+=data[i+2]; n++; } }
+  if(!n) return null;
+  function h(v){ v=Math.round(v/n).toString(16); return v.length<2?"0"+v:v; }
+  return "#"+h(r)+h(g)+h(b);
+}
+
+// ---------- page ----------
+if(typeof document!=="undefined"){
+  var S={}, T={}, box=null, outData=null, outName="skin_matched.png";
+  var $=function(id){ return document.getElementById(id); };
+
+  function swatch(label,hex){ return '<span class="sw"><i style="background:'+hex+'"></i>'+label+' '+hex+'</span>'; }
+
+  function loadFile(file, cb){
+    var url=URL.createObjectURL(file), img=new Image();
+    img.onload=function(){
+      var c=document.createElement("canvas"); c.width=img.naturalWidth; c.height=img.naturalHeight;
+      var ctx=c.getContext("2d"); ctx.drawImage(img,0,0);
+      var d=ctx.getImageData(0,0,c.width,c.height);
+      URL.revokeObjectURL(url); cb(c,d);
+    };
+    img.onerror=function(){ alert("That file couldn't be opened as a picture."); };
+    img.src=url;
+  }
+  function show(viewId, canvas){ var v=$(viewId); v.innerHTML=""; v.appendChild(canvas); }
+
+  $("sfile").onchange=function(e){
+    var f=e.target.files[0]; if(!f) return;
+    loadFile(f,function(c,d){
+      S={canvas:c,data:d,W:c.width,H:c.height,lab:toLab(d.data)};
+      S.stats=labStats(S.lab,S.W,S.H,null);
+      show("sview",c);
+      var hx=avgHex(d.data,S.W,null);
+      $("sread").innerHTML=swatch("Average:",hx)+swatch("Target:","#603c30");
+      run();
+    });
+  };
+
+  $("tfile").onchange=function(e){
+    var f=e.target.files[0]; if(!f) return;
+    outName=f.name.replace(/\.[^.]+$/,"")+"_skinmatched.png";
+    loadFile(f,function(c,d){
+      T={canvas:c,data:d,W:c.width,H:c.height,lab:toLab(d.data)};
+      box=null;
+      T.view=document.createElement("canvas"); T.view.width=T.W; T.view.height=T.H;
+      show("tview",T.view); drawTargetView();
+      attachBoxDrag(T.view);
+      $("clearbox").disabled=false;
+      run();
+    });
+  };
+
+  function drawTargetView(){
+    var ctx=T.view.getContext("2d"); ctx.putImageData(T.data,0,0);
+    if(box){
+      ctx.lineWidth=Math.max(2,T.W/300); ctx.strokeStyle="#00e0ff"; ctx.setLineDash([ctx.lineWidth*4,ctx.lineWidth*3]);
+      ctx.strokeRect(box.x+0.5,box.y+0.5,box.w,box.h);
+    }
+    var hx=avgHex(T.data.data,T.W,box);
+    $("tread").innerHTML=swatch(box?"Box average:":"Average:",hx);
+  }
+
+  function attachBoxDrag(cv){
+    var start=null;
+    function pt(ev){
+      var r=cv.getBoundingClientRect(), e=ev.touches?ev.touches[0]:ev;
+      var x=Math.round((e.clientX-r.left)*cv.width/r.width), y=Math.round((e.clientY-r.top)*cv.height/r.height);
+      return {x:Math.max(0,Math.min(cv.width-1,x)), y:Math.max(0,Math.min(cv.height-1,y))};
+    }
+    function down(ev){ ev.preventDefault(); start=pt(ev); }
+    function move(ev){
+      if(!start) return; ev.preventDefault(); var p=pt(ev);
+      box={x:Math.min(start.x,p.x), y:Math.min(start.y,p.y), w:Math.abs(p.x-start.x)+1, h:Math.abs(p.y-start.y)+1};
+      drawTargetView();
+    }
+    function up(){
+      if(!start) return; start=null;
+      if(box && (box.w<8 || box.h<8)) box=null;
+      drawTargetView(); run();
+    }
+    cv.addEventListener("mousedown",down); window.addEventListener("mousemove",move); window.addEventListener("mouseup",up);
+    cv.addEventListener("touchstart",down,{passive:false}); window.addEventListener("touchmove",move,{passive:false}); window.addEventListener("touchend",up);
+  }
+
+  $("clearbox").onclick=function(){ box=null; drawTargetView(); run(); };
+
+  $("strength").oninput=function(){ $("sval").textContent=this.value+"%"; run(); };
+
+  var pending=null;
+  function run(){
+    if(!S.stats||!T.data){ return; }
+    if(pending) clearTimeout(pending);
+    pending=setTimeout(doRun,30);
+  }
+  function doRun(){
+    pending=null;
+    var tStats=labStats(T.lab,T.W,T.H,box);
+    if(!tStats){ $("rread").innerHTML='<span class="warn">That box has no usable skin. Drag a box over her skin.</span>'; return; }
+    var st=parseInt($("strength").value,10)/100;
+    var c=document.createElement("canvas"); c.width=T.W; c.height=T.H;
+    var ctx=c.getContext("2d"), img=ctx.createImageData(T.W,T.H);
+    for(var i=3;i<img.data.length;i+=4) img.data[i]=T.data.data[i];
+    transfer(T.lab,tStats,S.stats,st,img.data);
+    ctx.putImageData(img,0,0);
+    outData=c; show("rview",c);
+    var hx=avgHex(img.data,T.W,box);
+    $("rread").innerHTML=swatch(box?"Box average now:":"Average now:",hx)+swatch("Skin master:",avgHex(S.data.data,S.W,null));
+    $("strength").disabled=false; $("save").disabled=false;
+  }
+
+  $("save").onclick=function(){
+    if(!outData) return;
+    outData.toBlob(function(b){
+      var a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=outName;
+      document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },1000);
+    },"image/png");
+  };
+}
+if(typeof module!=="undefined"){ module.exports={rgbToLab:rgbToLab,labToRgb:labToRgb,toLab:toLab,labStats:labStats,transfer:transfer,avgHex:avgHex}; }
+</script>
+</body>
+</html>
